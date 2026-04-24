@@ -168,8 +168,35 @@
       return;
     }
 
+    // Fetch full content for a file, using raw_url if truncated
+    async function getFileContent(file) {
+      if (!file.truncated && file.content != null) return file.content;
+      if (!file.raw_url) return file.content || "";
+      const res = await fetch(file.raw_url);
+      if (!res.ok) throw new Error(`Failed to fetch raw content for ${file.filename}`);
+      return res.text();
+    }
+
     // Render the selected file
-    function renderFile(file) {
+    async function renderFile(file) {
+      content.className = "state-message";
+      content.innerHTML = "";
+      content.append(el("div", { className: "spinner" }), el("p", {}, "Loading file…"));
+
+      let fileContent;
+      try {
+        fileContent = await getFileContent(file);
+      } catch (err) {
+        content.className = "state-message error";
+        content.innerHTML = "";
+        content.append(
+          el("h2", {}, "Failed to load file"),
+          el("p", {}, err.message),
+          el("a", { href: location.pathname }, "← Back to home")
+        );
+        return;
+      }
+
       content.className = "";
       content.innerHTML = "";
 
@@ -185,7 +212,6 @@
       iframe.style.border = "none";
       iframe.style.background = "#fff";
 
-      const fileContent = file.content || "";
       const isHtml =
         file.language === "HTML" || /\.html?$/i.test(file.filename);
 
