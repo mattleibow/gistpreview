@@ -1,5 +1,0 @@
-[     944ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://mattleibow.github.io/favicon.ico:0
-[    5057ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ https://mattleibow.github.io/gistpreview/script.js:205
-[    5195ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ about:srcdoc:0
-[   84990ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ https://mattleibow.github.io/gistpreview/script.js:205
-[   85128ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ about:srcdoc:0
