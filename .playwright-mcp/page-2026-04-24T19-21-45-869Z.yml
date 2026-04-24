@@ -1,0 +1,8 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - link "GistPreview" [ref=e5] [cursor=pointer]:
+      - /url: /gistpreview/
+    - link "63a533bd398e35efab3fe7f9e4031400" [ref=e6] [cursor=pointer]:
+      - /url: https://gist.github.com/63a533bd398e35efab3fe7f9e4031400
+    - button "184.html" [ref=e8] [cursor=pointer]
+  - paragraph [ref=e11]: Loading file…
