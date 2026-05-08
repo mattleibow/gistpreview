@@ -3,36 +3,64 @@
 
   const GIST_API = "https://api.github.com/gists/";
 
-  // ── URL helpers ──────────────────────────────────────────────
+  // ── Input parsing ──────────────────────────────────────────────
 
-  function getGistId() {
-    const raw = location.search.slice(1); // drop leading "?"
-    return parseGistInput(raw);
-  }
-
-  function parseGistInput(input) {
+  /**
+   * Parse user input into a source descriptor.
+   * @returns {{ type: 'gist', id: string }
+   *         | { type: 'repo', rawUrl: string, sourceUrl: string, filename: string }
+   *         | null}
+   */
+  function parseInput(input) {
     if (!input) return null;
     input = input.trim();
 
-    // Full URL: https://gist.github.com/<user>/<id> or https://gist.github.com/<id>
     try {
       const url = new URL(input);
+
+      // GitHub Gist URL
       if (url.hostname === "gist.github.com") {
         const parts = url.pathname.split("/").filter(Boolean);
-        return parts[parts.length - 1] || null;
+        const id = parts[parts.length - 1] || null;
+        return id ? { type: "gist", id } : null;
+      }
+
+      // Raw GitHub content URL
+      if (url.hostname === "raw.githubusercontent.com") {
+        const filename = url.pathname.split("/").pop() || "file";
+        return { type: "repo", rawUrl: input, sourceUrl: input, filename };
+      }
+
+      // GitHub blob/raw URL: github.com/{owner}/{repo}/blob|raw/{ref}/{path}
+      if (url.hostname === "github.com") {
+        const parts = url.pathname.split("/").filter(Boolean);
+        if (parts.length >= 5 && (parts[2] === "blob" || parts[2] === "raw")) {
+          const owner = parts[0];
+          const repo = parts[1];
+          const afterVerb = parts.slice(3).join("/");
+          const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${afterVerb}`;
+          const filename = parts[parts.length - 1] || "file";
+          return { type: "repo", rawUrl, sourceUrl: input, filename };
+        }
       }
     } catch {
-      // not a URL – treat as raw ID
+      // not a URL – fall through
     }
 
-    // Accept a bare hex-ish ID (GitHub gist IDs are 32-char hex)
-    if (/^[a-f0-9]+$/i.test(input)) return input;
+    // Bare gist ID (hex string)
+    if (/^[a-f0-9]+$/i.test(input)) return { type: "gist", id: input };
 
-    // Accept <user>/<id> shorthand
+    // <user>/<id> shorthand for gists
     const shorthand = input.match(/^[\w.-]+\/([a-f0-9]+)$/i);
-    if (shorthand) return shorthand[1];
+    if (shorthand) return { type: "gist", id: shorthand[1] };
 
     return null;
+  }
+
+  function getSource() {
+    const raw = location.search.slice(1);
+    if (!raw) return null;
+    return parseInput(decodeURIComponent(raw));
   }
 
   // ── DOM helpers ──────────────────────────────────────────────
@@ -54,20 +82,24 @@
   // ── Landing page ────────────────────────────────────────────
 
   function showLanding() {
-    document.title = "GistPreview – Preview HTML Gists";
+    document.title = "GistPreview – Preview HTML from GitHub";
     const app = $("#app");
     app.innerHTML = "";
 
     const input = el("input", {
       type: "text",
-      placeholder: "Paste a gist URL or ID…",
+      placeholder: "Paste a gist URL, GitHub file URL, or ID…",
       autofocus: "",
     });
 
     const submit = () => {
-      const id = parseGistInput(input.value);
-      if (id) {
-        window.location.search = id;
+      const parsed = parseInput(input.value);
+      if (parsed) {
+        if (parsed.type === "gist") {
+          window.location.search = parsed.id;
+        } else {
+          window.location.search = encodeURIComponent(input.value.trim());
+        }
       } else if (input.value.trim()) {
         input.style.borderColor = "var(--danger)";
         input.focus();
@@ -84,13 +116,14 @@
       el("div", { className: "landing" },
         el("h1", {}, "Gist", el("span", {}, "Preview")),
         el("p", { className: "tagline" },
-          "Instantly preview HTML content from any GitHub Gist."
+          "Instantly preview HTML content from GitHub Gists and repositories."
         ),
         el("div", { className: "input-group" }, input, btn),
         el("p", { className: "hint" },
           "Paste a URL like ",
           el("code", {}, "https://gist.github.com/user/abc123"),
-          " or just the gist ID."
+          " or ",
+          el("code", {}, "https://github.com/user/repo/blob/main/file.html"),
         )
       )
     );
@@ -98,7 +131,7 @@
 
   // ── Preview page ────────────────────────────────────────────
 
-  async function showPreview(gistId) {
+  async function showGistPreview(gistId) {
     document.title = `GistPreview – ${gistId}`;
     const app = $("#app");
     app.innerHTML = "";
@@ -244,6 +277,79 @@ body { font-family: ui-monospace, monospace; padding: 1rem; white-space: pre-wra
     renderFile(renderableFiles[0]);
   }
 
+  // ── Repo file preview ──────────────────────────────────────────
+
+  async function showRepoPreview(source) {
+    document.title = `GistPreview – ${source.filename}`;
+    const app = $("#app");
+    app.innerHTML = "";
+
+    const toolbar = el("div", { className: "toolbar" },
+      el("a", { className: "logo", href: location.pathname }, "GistPreview"),
+      el("a", {
+        className: "gist-link",
+        href: source.sourceUrl,
+        target: "_blank",
+        rel: "noopener",
+      }, source.filename)
+    );
+
+    const content = el("div", { className: "state-message" },
+      el("div", { className: "spinner" }),
+      el("p", {}, "Loading file…")
+    );
+
+    const wrapper = el("div", { className: "preview" }, toolbar, content);
+    app.append(wrapper);
+
+    let fileContent;
+    try {
+      const res = await fetch(source.rawUrl);
+      if (!res.ok) {
+        const status = res.status;
+        throw new Error(
+          status === 404
+            ? "File not found. Check the URL and try again."
+            : `GitHub returned ${status}.`
+        );
+      }
+      fileContent = await res.text();
+    } catch (err) {
+      content.className = "state-message error";
+      content.innerHTML = "";
+      content.append(
+        el("h2", {}, "Oops"),
+        el("p", {}, err.message),
+        el("a", { href: location.pathname }, "← Back to home")
+      );
+      return;
+    }
+
+    content.className = "";
+    content.innerHTML = "";
+
+    const iframe = el("iframe", {
+      sandbox: "allow-scripts allow-forms allow-popups",
+    });
+    content.append(iframe);
+    wrapper.className = "preview";
+    content.style.flex = "1";
+    content.style.display = "flex";
+    iframe.style.flex = "1";
+    iframe.style.width = "100%";
+    iframe.style.border = "none";
+    iframe.style.background = "#fff";
+
+    const isHtml = /\.html?$/i.test(source.filename);
+
+    iframe.srcdoc = isHtml
+      ? fileContent
+      : `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+body { font-family: ui-monospace, monospace; padding: 1rem; white-space: pre-wrap; word-break: break-word; }
+</style></head><body>${escapeHtml(fileContent)}</body></html>`;
+  }
+
   function escapeHtml(str) {
     return str
       .replace(/&/g, "&amp;")
@@ -254,11 +360,13 @@ body { font-family: ui-monospace, monospace; padding: 1rem; white-space: pre-wra
   // ── Boot ─────────────────────────────────────────────────────
 
   function init() {
-    const gistId = getGistId();
-    if (gistId) {
-      showPreview(gistId);
-    } else {
+    const source = getSource();
+    if (!source) {
       showLanding();
+    } else if (source.type === "gist") {
+      showGistPreview(source.id);
+    } else if (source.type === "repo") {
+      showRepoPreview(source);
     }
   }
 
